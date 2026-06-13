@@ -14,7 +14,7 @@ return {
          {
             kind = "normal",
             label = "c.MK",
-            move = "crouch_mk",
+            move = "d_MK",
             button = nil,
             cancel_window = nil,
          },
@@ -38,14 +38,14 @@ return {
          {
             kind = "normal",
             label = "c.LK",
-            move = "crouch_lk",
+            move = "d_LK",
             button = nil,
             cancel_window = nil,
          },
          {
             kind = "normal",
             label = "c.MK",
-            move = "crouch_mk",
+            move = "d_MK",
             button = nil,
             cancel_window = { min = 1, max = 16 },
          },
