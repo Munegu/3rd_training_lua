@@ -82,18 +82,25 @@ return {
       {
         kind = "normal",              -- "normal" | "special" | "super" | "jump_attack" | "throw"
         label = "c.MK",               -- displayed for this step
-        animation = "<anim_hex>",     -- player.animation expected when the move comes out
-        hit_animation = "<anim_hex>", -- dummy.last_received_connection_animation expected
+        move = "crouch_mk",           -- framedata move name (resolved to anim hash at arm-time)
+        button = nil,                 -- "LK"/"MK"/"HK"/"LP"/"MP"/"HP"/... — used for moves
+                                      -- that have per-strength variants ("hitobashira"+"LK")
         cancel_window = nil,          -- first step has no window
       },
       {
         kind = "special",
         label = "qcf+LK Hitobashira",
-        animation = "<anim_hex>",
-        hit_animation = "<anim_hex>",
+        move = "hitobashira",
+        button = "LK",
         cancel_window = { min = 1, max = 20 },  -- frames between previous step's
                                                 -- hit landing and this step's
                                                 -- hit landing
+        -- optional fields, see "Optional step fields" below:
+        -- ignore_extra_hits = false,
+        -- requires_dummy_juggle = false,
+        -- requires_dummy_in_air = false,
+        -- min_hitstun_remaining = nil,
+        -- must_hit = true,
       },
     },
   },
@@ -102,17 +109,40 @@ return {
 ```
 
 Notes:
-- The `animation` / `hit_animation` values are the 4-hex-digit animation
-  hashes already used by the framedata system (`bit.tohex(memory.readword(player.base + 0x202), 4)`).
-  They will be captured during implementation by running each combo once
-  and reading `gamestate.P1.animation` / `dummy.last_received_connection_animation`.
+- A step identifies a move by **name** (`move = "hitobashira"`) plus optional
+  `button` strength, mirroring the symbolic format in `data/move_list.json`.
+  At arm-time the validator resolves each step's `(move, button)` to the
+  player-side animation hash via the existing helper
+  `framedata.find_frame_data_by_name(char_str, name, button)`.
 - The "input" the player must perform is NOT explicitly encoded — we infer
-  success from the **animation that comes out** and from the **hit landing
-  on the dummy**. That is more robust than trying to match motion inputs
-  in a buffer, and it matches the rest of the codebase's signal model.
-- For steps where the move can come out but the hit does not need to
-  connect (e.g. a whiffed kara cancel), `hit_animation = nil` is allowed
-  and the validator skips the hit-confirm check for that step.
+  success from the **animation that comes out on P1** and from the
+  **`dummy.combo` counter incrementing**. That is more robust than trying
+  to match motion inputs in a buffer, and it matches the rest of the
+  codebase's signal model.
+- The `dummy.last_received_connection_animation` is used as a secondary
+  discriminator: at the moment `dummy.combo` increments, the validator
+  also verifies that the animation that landed matches the expected step
+  (resolved from the same `(move, button)` pair). This guards against
+  attributing a late multi-hit from the previous step to the current one.
+
+### Optional step fields
+
+These appear only when needed; defaults match the strict/pedagogical
+behavior described in §6.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `must_hit` | `true` | If `false`, the step succeeds when the player's animation comes out — no hit required (whiff cancels, kara cancels). |
+| `ignore_extra_hits` | `false` | If `true`, a `dummy.combo` increment from any animation other than the expected one is ignored instead of failing the combo. For setups where a stray hit is expected and not pedagogically meaningful. |
+| `requires_dummy_juggle` | `false` | The hit only counts as a step success if the dummy is in a juggle state at the moment the hit lands. Guards against "the combo connected because the dummy was grounded when it should have been juggled". |
+| `requires_dummy_in_air` | `false` | Same idea, weaker: only require the dummy to be airborne, not specifically juggled. |
+| `min_hitstun_remaining` | `nil` | If set, the hit only counts when the dummy still has at least N frames of hitstun left from the previous hit. Catches "the combo links by luck because the previous move had unusual stun on a specific hit". |
+
+The validator reads these flags at arm-time and applies the corresponding
+gamestate checks during `tick()`. The exact field name on the dummy
+gamestate object for juggle / hitstun timer is to be confirmed during
+implementation by reading `src/gamestate.lua` — the codebase already
+displays air-time and stun-timer overlays, so the data is available.
 
 ## 6. Validator state machine
 
@@ -140,25 +170,39 @@ Internal counters tracked across frames:
 Per-frame `tick()` logic (called from `combo_challenges.update()`):
 
 1. Read `player.has_just_attacked` and `player.animation`. If a new
-   attack just started AND `player.animation ~= steps[expected].animation`
-   → FAIL with `wrong_input` and stop.
-2. If `dummy.combo > prev_dummy_combo`:
-   - If `dummy.last_received_connection_animation ==
-     steps[expected].hit_animation` (or `hit_animation == nil`, the
-     "whiff cancel" case):
-     - If `expected > 1` and the step's `cancel_window` is set, verify
+   attack just started AND `player.animation ~= expected_step.player_anim`
+   → FAIL with `wrong_input` and stop. (`expected_step.player_anim` is
+   resolved at arm-time from `(move, button)`.)
+2. If `dummy.combo > prev_dummy_combo` (a hit just landed this frame):
+   - If `dummy.last_received_connection_animation == expected_step.player_anim`,
+     or `expected_step.must_hit == false`:
+     - If `expected > 1` and the step has a `cancel_window`, verify
        `(current_frame - last_hit_frame)` is within `[min, max]`. If
        outside → FAIL with `missed_window`.
+     - If `expected_step.requires_dummy_juggle == true` and the dummy is
+       not in a juggle state → FAIL with `wrong_state`.
+     - If `expected_step.requires_dummy_in_air == true` and the dummy is
+       grounded → FAIL with `wrong_state`.
+     - If `expected_step.min_hitstun_remaining` is set and the dummy's
+       remaining hitstun before this hit is below the threshold →
+       FAIL with `wrong_state`.
      - Else → step succeeds: set `last_hit_frame = current_frame`,
        increment `expected`.
-   - Else → the dummy got hit by something the combo didn't ask for →
-     FAIL with `wrong_input` (or treated as a stray hit; concrete behavior
-     decided during implementation, see Open detail below).
+   - Else (the hit came from an unexpected animation):
+     - If `expected_step.ignore_extra_hits == true` → no-op, keep waiting.
+     - Else → FAIL with `wrong_input` (strict default; see §3 design
+       choice).
 3. If `expected > 1` AND `dummy.combo == 0` (combo just dropped or already
    dropped):
    - Start (or continue) a `drop_grace_counter`. If it exceeds
      `COMBO_DROP_GRACE_FRAMES = 30` → FAIL with `combo_dropped`.
 4. If `expected > #steps` → SUCCESS.
+
+**Why strict by default for "stray hit"**: in a combo trial, a hit landing
+from a move the combo did not ask for usually means the player drifted off
+the intended branch and the validation should not flatter them with a
+false success. Per-step `ignore_extra_hits` covers the legitimate
+exceptions (setups where a secondary hit is expected to land harmlessly).
 
 Open detail to validate during implementation: the exact mapping of "step
 expected to land" vs `dummy.combo` increments for combos with multi-hit
@@ -210,6 +254,9 @@ validator.
 - **Result line**: shown after SUCCESS or FAIL.
   - SUCCESS → "Combo réussi !"
   - FAIL → "Raté — step N (<reason>)" with reason localized
+- **Hotkey hint** (always visible while the mode is active): a single
+  line in a discreet corner like `Coin = Retry` so a user testing the
+  mod without reading the README understands the reset binding.
 - Localization keys go into `localization.json` like every other module.
 
 Drawing is done via `draw.draw_text_to_canvas` so the existing canvas
@@ -234,24 +281,32 @@ combo definition (`starts_with_meter`, SA selection), then
 
 ## 10. Open dependencies during implementation
 
-- Capturing the `animation` / `hit_animation` hex for each Oro move used
-  by the v1 combos. Plan: a tiny developer-mode debug print (gated by
-  `debug_settings.developer_mode`) that logs the player's animation each
-  time `has_just_attacked` is true. This is throwaway code, removed
-  before merge.
 - Naming and inputs of the 5–6 combos: the user will supply the list
   once this spec is approved. Spec assumes 5–6 entries with the
   difficulties indicated above.
+- The exact field names on the dummy gamestate object for "is juggled",
+  "is airborne", and "remaining hitstun frames" need to be located in
+  `src/gamestate.lua`. The data is known to exist (the mod already
+  displays an Air Time gauge and a Stun Timer), but the validator will
+  read the source to bind to the canonical fields rather than guessing.
+
+Animation hashes are NOT an open dependency: the codebase already exposes
+`framedata.find_frame_data_by_name(char_str, name, button)` in
+`src/data/framedata.lua`, and the Oro framedata in
+`data/sfiii3nr1/framedata/@oro_framedata.json` already lists every move
+by name (`hitobashira_LK`, `hitobashira_MK`, `hitobashira_HK`,
+`nichirin_HP`, `oniyanma_MP`, `niouriki_LP`, etc.). Combo definitions
+reference moves by name; the validator resolves to anim hashes at
+arm-time.
 
 ## 11. Risks
 
-- **Animation-hash brittleness**: animations can vary per button strength
-  (LK / MK / HK Hitobashira may share an animation or not). If a step's
-  animation collides across strengths, the validator can't distinguish
-  them by animation alone. Mitigation: if it happens for an Oro move,
-  also check the `pressed` buttons in `player.input_history` on the same
-  frame the attack started. Out of scope to implement now; documented
-  as a fallback.
+- **Per-strength animation collisions**: verified non-issue for Oro's
+  Hitobashira (`hitobashira_LK`, `_MK`, `_HK`, `_EXK` are all distinct
+  animation hashes in the framedata). If a future combo needs a move
+  whose strengths share an animation, the validator can fall back to
+  matching the `pressed` buttons in `player.input_history` on the
+  attack-start frame. Not implemented in v1; documented as a fallback.
 - **Force-character interaction with online play / Fightcade**: the
   existing `character_select.force_select_character` is already used by
   other modules (e.g. `hadou_matsuri.lua`), so the path is supported.
