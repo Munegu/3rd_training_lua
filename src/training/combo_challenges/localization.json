@@ -1,0 +1,62 @@
+{
+  "training_combo_challenges": {
+    "en": "Combo Challenges",
+    "jp": "コンボチャレンジ"
+  },
+  "menu_combo": {
+    "en": "Combo",
+    "jp": "コンボ"
+  },
+  "menu_difficulty_filter": {
+    "en": "Difficulty",
+    "jp": "難易度"
+  },
+  "menu_show_notation_overlay": {
+    "en": "Show notation overlay",
+    "jp": "表記を表示"
+  },
+  "menu_show_step_strip": {
+    "en": "Show step strip",
+    "jp": "ステップを表示"
+  },
+  "combo_difficulty_all": {
+    "en": "All",
+    "jp": "全て"
+  },
+  "combo_difficulty_beginner": {
+    "en": "Beginner",
+    "jp": "初級"
+  },
+  "combo_difficulty_intermediate": {
+    "en": "Intermediate",
+    "jp": "中級"
+  },
+  "combo_difficulty_advanced": {
+    "en": "Advanced",
+    "jp": "上級"
+  },
+  "combo_result_success": {
+    "en": "Combo cleared!",
+    "jp": "コンボ成功！"
+  },
+  "combo_result_fail_wrong_input": {
+    "en": "Miss — wrong move at step ",
+    "jp": "失敗 — 不正な入力 ステップ "
+  },
+  "combo_result_fail_missed_window": {
+    "en": "Miss — missed timing at step ",
+    "jp": "失敗 — タイミング ステップ "
+  },
+  "combo_result_fail_combo_dropped": {
+    "en": "Miss — combo dropped at step ",
+    "jp": "失敗 — コンボ切れ ステップ "
+  },
+  "combo_result_fail_wrong_state": {
+    "en": "Miss — wrong opponent state at step ",
+    "jp": "失敗 — 状態不一致 ステップ "
+  },
+  "combo_hint_coin_retry": {
+    "en": "Coin = Retry",
+    "jp": "コイン = リトライ"
+  }
+}

@@ -1,5 +1,5 @@
 local tools = require "src.tools"
-local training_mode_names = {"defense", "jumpins", "footsies", "unblockables", "geneijin"}
+local training_mode_names = {"defense", "jumpins", "footsies", "unblockables", "geneijin", "combo_challenges"}
 local extra_module_names = {"distances", "extra_settings", "key_bindings"}
 local training_modules = {}
 local extra_modules = {}
