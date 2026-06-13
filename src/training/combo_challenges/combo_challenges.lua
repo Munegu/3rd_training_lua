@@ -1,6 +1,7 @@
 ---@diagnostic disable: lowercase-global, undefined-global
 local menu_items = require("src.ui.menu_items")
 local settings = require("src.settings")
+local oro_combos = require("src.training.combo_challenges.combo_data.oro")
 
 local module_name = "combo_challenges"
 
@@ -10,7 +11,9 @@ local should_update_while_menu_is_open = false
 
 local combo_challenges
 
-local function init() end
+local function init()
+   print(string.format("[combo_challenges] loaded %d Oro combos", #oro_combos))
+end
 
 local function start()
    is_mode_active = true
