@@ -7,6 +7,7 @@ local framedata = require("src.data.framedata")
 local validator_module = require("src.training.combo_challenges.combo_validator")
 local display = require("src.training.combo_challenges.combo_display")
 local tools = require("src.tools")
+local character_select = require("src.control.character_select")
 
 -- Localization: image_tables.text stores pre-rendered image glyphs for
 -- known menu keys; our combo keys are not in that table. Pass resolved
@@ -59,6 +60,41 @@ local should_update_while_menu_is_open = false
 local active_combo = nil
 local active_validator = nil
 local last_logged_state = nil
+
+-- Savestate for resetting the round (Option B: poll has_curtain_just_began).
+local combo_reset_savestate = nil
+local pending_save_reset_point = false
+
+local function set_meter_for_combo(combo)
+   if not combo or not combo.starts_with_meter then return end
+   local addr = gamestate.P1.addresses
+   if not addr then return end
+   local max_gauge = gamestate.P1.max_meter_gauge
+   -- max_meter_gauge may be 0 before the round populates; default to 96.
+   if not max_gauge or max_gauge == 0 then max_gauge = 96 end
+   memory.writebyte(addr.gauge, math.min(combo.starts_with_meter, max_gauge))
+end
+
+local function force_matchup_for_combo(combo)
+   local sa = (combo and combo.sa) or 1
+   character_select.force_select_character(1, "oro", sa, "HK")
+   character_select.force_select_character(2, "ken", 1, "HK")
+end
+
+local function save_reset_point()
+   combo_reset_savestate = savestate.create()
+   savestate.save(combo_reset_savestate)
+   print("[combo_challenges] reset point saved")
+end
+
+local function reload_reset_point()
+   if combo_reset_savestate then
+      savestate.load(combo_reset_savestate)
+      if active_validator and active_combo then
+         active_validator.reset(gamestate.P2.combo)
+      end
+   end
+end
 
 local function build_snapshot(player, dummy)
    local hitstun = DUMMY_HITSTUN_FIELD and dummy[DUMMY_HITSTUN_FIELD] or 0
@@ -159,6 +195,8 @@ end
 
 local function start()
    is_mode_active = true
+   combo_reset_savestate = nil
+   pending_save_reset_point = false
    if not active_validator then
       -- Defensive: should have been armed via validate_function; if
       -- not, fall back to the first combo so the mode is still usable.
@@ -167,6 +205,14 @@ local function start()
       active_validator.arm(active_combo, gamestate.P2.combo)
    end
    last_logged_state = active_validator.state
+   -- Kick off character select: Oro (P1) vs Ken (P2).
+   -- force_select_character queues coroutines that run in
+   -- character_select.update_character_select each frame until selection
+   -- completes. No dedicated "finished" callback exists, so we poll
+   -- has_curtain_just_began in update() to know when the round is live.
+   force_matchup_for_combo(active_combo)
+   -- Flag update() to save the reset point once the round begins.
+   pending_save_reset_point = true
    print("[combo_challenges] start: " .. active_combo.id)
 end
 
@@ -174,6 +220,8 @@ local function stop()
    is_mode_active = false
    active_combo = nil
    active_validator = nil
+   combo_reset_savestate = nil
+   pending_save_reset_point = false
    print("[combo_challenges] stopped")
 end
 
@@ -197,7 +245,20 @@ local function current_result_text()
 end
 
 local function update()
-   if not is_mode_active or not active_validator then return end
+   if not is_mode_active then return end
+
+   -- Option B: poll for the curtain that marks the first frame of a new round.
+   -- has_curtain_just_began is true for exactly one frame when match_state
+   -- transitions to 0x01 (pre-round curtain). We use this moment to:
+   --   1) write the starting meter (character data is now valid in memory), and
+   --   2) save the reset savestate so the user can replay the round.
+   if pending_save_reset_point and gamestate.has_curtain_just_began then
+      set_meter_for_combo(active_combo)
+      save_reset_point()
+      pending_save_reset_point = false
+   end
+
+   if not active_validator then return end
    if not gamestate.is_in_match then return end
    local snap = build_snapshot(gamestate.P1, gamestate.P2)
    active_validator.tick(snap)
@@ -292,6 +353,7 @@ combo_challenges = {
    update = update,
    create_menu = create_menu,
    process_gesture = process_gesture,
+   reload_reset_point = reload_reset_point,
 }
 
 setmetatable(combo_challenges, {
