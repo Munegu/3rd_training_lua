@@ -26,7 +26,7 @@ local function smoke_test_validator()
 
    local combo = oro_combos[1]
    local v = validator.new(resolve)
-   v.arm(combo)
+   v.arm(combo, 0)  -- explicit 0 for clarity
    assert(v.state == validator.STATE.ARMED, "expected ARMED, got " .. v.state)
 
    -- Step 1: c.MK comes out and lands on frame 100.
@@ -56,6 +56,10 @@ end
 
 local function init()
    print(string.format("[combo_challenges] loaded %d Oro combos", #oro_combos))
+   -- Smoke test runs once per script load. Remove this call in Task 9
+   -- after the user has confirmed the "validator smoke test passed" line
+   -- prints during a real emulator session.
+   smoke_test_validator()
 end
 
 local function start()

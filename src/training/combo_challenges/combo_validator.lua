@@ -1,6 +1,18 @@
 -- Pure Lua FSM. No emu / memory / gui calls anywhere in this file.
 -- The caller provides a snapshot table each tick; the validator decides
 -- whether to advance, fail, or succeed.
+--
+-- Calling convention: methods are stored as PLAIN TABLE FIELDS (not via
+-- metatable __index), so callers must use dot-notation: v.arm(combo), NOT
+-- v:arm(combo). Colon-notation silently passes v as the first arg and
+-- corrupts behavior.
+--
+-- Known limitation: step.must_hit == false is only meaningful when SOME hit
+-- still lands on the dummy in that frame (the hit-landed branch in tick()
+-- is what calls "step succeeded"). True whiff/kara cancels where the
+-- player's move comes out without anything connecting are NOT supported
+-- in v1. Adding that requires a separate "attack started AND no hit
+-- expected" success path. Tracked in the v1.x backlog.
 
 local M = {}
 
@@ -38,30 +50,34 @@ function M.new(resolve_animation)
    }
 
    -- Resolve and cache the player_anim hash for each step.
-   local function arm(combo)
+   -- current_dummy_combo: pass dummy.combo at the moment of arming so the
+   -- first tick() does not treat an already-in-progress hit as a new event.
+   local function arm(combo, current_dummy_combo)
       assert(combo and combo.steps and #combo.steps > 0,
          "validator.arm: combo with at least one step required")
       self.combo = combo
-      for _, step in ipairs(combo.steps) do
-         step.player_anim = self._resolve(step.move, step.button)
-         assert(step.player_anim,
+      self._step_anims = {}
+      for i, step in ipairs(combo.steps) do
+         local hash = self._resolve(step.move, step.button)
+         assert(hash,
             "validator.arm: could not resolve animation for "
             .. tostring(step.move) .. " / " .. tostring(step.button))
+         self._step_anims[i] = hash
       end
       self.state = M.STATE.ARMED
       self.expected = 1
       self.last_hit_frame = 0
-      self.prev_dummy_combo = 0
+      self.prev_dummy_combo = current_dummy_combo or 0
       self.drop_grace_counter = 0
       self.fail_reason = nil
       self.fail_step = nil
    end
 
-   local function reset()
+   local function reset(current_dummy_combo)
       self.state = self.combo and M.STATE.ARMED or M.STATE.IDLE
       self.expected = 1
       self.last_hit_frame = 0
-      self.prev_dummy_combo = 0
+      self.prev_dummy_combo = current_dummy_combo or 0
       self.drop_grace_counter = 0
       self.fail_reason = nil
       self.fail_step = nil
@@ -94,7 +110,7 @@ function M.new(resolve_animation)
       -- (1) Wrong-input detection: player started a new attack that does
       -- not match the expected step's animation.
       if snap.player_has_just_attacked
-         and snap.player_animation ~= step.player_anim
+         and snap.player_animation ~= self._step_anims[self.expected]
       then
          fail(M.FAIL_REASON.WRONG_INPUT)
          return self.state
@@ -104,7 +120,7 @@ function M.new(resolve_animation)
       if snap.dummy_combo > self.prev_dummy_combo then
          local matches_expected =
             (step.must_hit == false)
-            or (snap.dummy_last_received_anim == step.player_anim)
+            or (snap.dummy_last_received_anim == self._step_anims[self.expected])
 
          if matches_expected then
             -- Cancel window check (steps 2..N).
