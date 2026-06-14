@@ -298,6 +298,18 @@ local function arm_and_start(combo)
    modes.start(combo_challenges)
 end
 
+local function update_menu()
+   -- Called by src/ui/menu.lua whenever the user navigates to this training
+   -- mode's page. Re-sync the filtered combo list in case oro_combos changed
+   -- (hot-reload) or the difficulty filter was edited elsewhere, and clamp
+   -- the current combo index so it can never point past the new list.
+   refresh_filtered_combos()
+   local cc = settings.training.combo_challenges
+   if cc and cc.current_combo_index > math.max(1, #filtered_combos) then
+      cc.current_combo_index = 1
+   end
+end
+
 local function create_menu()
    refresh_filtered_combos()
    local difficulty_item = menu_items.List_Menu_Item:new(
@@ -350,6 +362,7 @@ combo_challenges = {
    stop = stop,
    update = update,
    create_menu = create_menu,
+   update_menu = update_menu,
    process_gesture = process_gesture,
    reload_reset_point = reload_reset_point,
    get_valid_control_schemes = get_valid_control_schemes,
