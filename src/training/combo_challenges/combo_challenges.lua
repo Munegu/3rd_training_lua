@@ -29,6 +29,18 @@ end
 
 local module_name = "combo_challenges"
 
+local DIFFICULTY_FILTERS = {
+   "combo_difficulty_all",
+   "combo_difficulty_beginner",
+   "combo_difficulty_intermediate",
+   "combo_difficulty_advanced",
+}
+
+local DIFFICULTY_KEY = { "all", "beginner", "intermediate", "advanced" }
+
+local filtered_combos = {}
+local combo_names = {}
+
 -- Field names verified against src/gamestate.lua (see Task 4 step 2).
 -- These reference fields on a gamestate player object.
 -- recovery_time: frame countdown for hitstun/blockstun (read_player_vars line ~659,
@@ -109,7 +121,25 @@ local function smoke_test_validator()
    print("[combo_challenges] validator smoke test passed")
 end
 
+local function refresh_filtered_combos()
+   filtered_combos = {}
+   combo_names = {}
+   local filter = DIFFICULTY_KEY[settings.training.combo_challenges.current_difficulty_filter]
+   for _, c in ipairs(oro_combos) do
+      if filter == "all" or c.difficulty == filter then
+         table.insert(filtered_combos, c)
+         table.insert(combo_names, c.name)
+      end
+   end
+   if #filtered_combos == 0 then
+      table.insert(combo_names, "—")
+   end
+end
+
 local function init()
+   settings.training.combo_challenges = settings.training.combo_challenges
+      or { show_notation_overlay = true, show_step_strip = true,
+           current_difficulty_filter = 1, current_combo_index = 1 }
    print(string.format("[combo_challenges] loaded %d Oro combos", #oro_combos))
    -- Smoke test runs once per script load. Remove this call in Task 9
    -- after the user has confirmed the "validator smoke test passed" line
@@ -122,17 +152,17 @@ local function resolve_oro_animation(move, button)
    return anim_hex
 end
 
-local function arm_combo_for_dev()
-   active_combo = oro_combos[1]            -- TEMP: hard-armed for dev only
-   active_validator = validator_module.new(resolve_oro_animation)
-   active_validator.arm(active_combo, gamestate.P2.combo)  -- NOTE: pass current dummy combo
-   last_logged_state = active_validator.state
-   print("[combo_challenges] armed combo: " .. active_combo.id)
-end
-
 local function start()
    is_mode_active = true
-   arm_combo_for_dev()
+   if not active_validator then
+      -- Defensive: should have been armed via validate_function; if
+      -- not, fall back to the first combo so the mode is still usable.
+      active_combo = oro_combos[1]
+      active_validator = validator_module.new(resolve_oro_animation)
+      active_validator.arm(active_combo, gamestate.P2.combo)
+   end
+   last_logged_state = active_validator.state
+   print("[combo_challenges] start: " .. active_combo.id)
 end
 
 local function stop()
@@ -194,17 +224,58 @@ end
 
 local function process_gesture(gesture) end
 
+local function arm_and_start(combo)
+   local modes = require("src.modes")
+   local menu = require("src.ui.menu")
+   active_combo = combo
+   active_validator = validator_module.new(resolve_oro_animation)
+   active_validator.arm(active_combo, gamestate.P2.combo)
+   menu.close_menu()
+   modes.start(combo_challenges)
+end
+
 local function create_menu()
-   local label = menu_items.Header_Menu_Item:new("training_combo_challenges")
-   local start_btn = menu_items.Button_Menu_Item:new("menu_start", function()
-      local modes = require("src.modes")
-      local menu = require("src.ui.menu")
-      menu.close_menu()
-      modes.start(combo_challenges)
-   end)
+   refresh_filtered_combos()
+   local difficulty_item = menu_items.List_Menu_Item:new(
+      "menu_difficulty_filter",
+      settings.training.combo_challenges,
+      "current_difficulty_filter",
+      DIFFICULTY_FILTERS,
+      1)
+   difficulty_item.on_change = function()
+      refresh_filtered_combos()
+      settings.training.combo_challenges.current_combo_index = 1
+   end
+
+   local combo_item = menu_items.List_Menu_Item:new(
+      "menu_combo",
+      settings.training.combo_challenges,
+      "current_combo_index",
+      combo_names,
+      1)
+   combo_item.is_enabled = function() return framedata.is_loaded end
+   combo_item.is_unselectable = function() return not framedata.is_loaded end
+   combo_item.validate_function = function()
+      local i = settings.training.combo_challenges.current_combo_index
+      local combo = filtered_combos[i]
+      if not combo then return end
+      arm_and_start(combo)
+   end
+
+   local notation_overlay_item = menu_items.On_Off_Menu_Item:new(
+      "menu_show_notation_overlay",
+      settings.training.combo_challenges,
+      "show_notation_overlay", true)
+
+   local step_strip_item = menu_items.On_Off_Menu_Item:new(
+      "menu_show_step_strip",
+      settings.training.combo_challenges,
+      "show_step_strip", true)
+
    return {
       name = "training_combo_challenges",
-      entries = { label, start_btn },
+      entries = { difficulty_item, combo_item,
+                  notation_overlay_item, step_strip_item },
    }
 end
 
