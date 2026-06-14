@@ -8,6 +8,7 @@ local validator_module = require("src.training.combo_challenges.combo_validator"
 local display = require("src.training.combo_challenges.combo_display")
 local tools = require("src.tools")
 local character_select = require("src.control.character_select")
+local hud = require("src.ui.hud")
 
 -- Localization: image_tables.text stores pre-rendered image glyphs for
 -- known menu keys; our combo keys are not in that table. Pass resolved
@@ -189,6 +190,22 @@ local function resolve_oro_animation(move, button)
    return anim_hex
 end
 
+local function combo_challenges_display()
+   if not active_validator then return end
+   if not gamestate.is_in_match then return end
+   local cc_settings = settings.training and settings.training.combo_challenges
+   local show_notation = not (cc_settings and cc_settings.show_notation_overlay == false)
+   local show_steps    = not (cc_settings and cc_settings.show_step_strip == false)
+   display.draw({
+      combo = active_combo,
+      current_step = active_validator.expected,
+      show_notation = show_notation,
+      show_steps    = show_steps,
+      result_text   = current_result_text(),
+      coin_hint     = L("combo_hint_coin_retry"),
+   })
+end
+
 local function start()
    is_mode_active = true
    combo_reset_savestate = nil
@@ -208,9 +225,11 @@ local function start()
    force_matchup_for_combo(active_combo)
    -- Flag update() to save the reset point once the round begins.
    pending_save_reset_point = true
+   hud.register_draw(combo_challenges_display)
 end
 
 local function stop()
+   hud.unregister_draw(combo_challenges_display)
    is_mode_active = false
    active_combo = nil
    active_validator = nil
@@ -255,20 +274,6 @@ local function update()
    if not gamestate.is_in_match then return end
    local snap = build_snapshot(gamestate.P1, gamestate.P2)
    active_validator.tick(snap)
-   -- Draw overlay.  draw.render_text queues into the immediate gui buffer
-   -- (same as jumpins and all other training modules that call it from
-   -- before_frame via modules.update()).
-   local cc_settings = settings.training and settings.training.combo_challenges
-   local show_notation = not (cc_settings and cc_settings.show_notation_overlay == false)
-   local show_steps    = not (cc_settings and cc_settings.show_step_strip == false)
-   display.draw({
-      combo = active_combo,
-      current_step = active_validator.expected,
-      show_notation = show_notation,
-      show_steps    = show_steps,
-      result_text   = current_result_text(),
-      coin_hint     = L("combo_hint_coin_retry"),
-   })
 end
 
 local function process_gesture(gesture)
