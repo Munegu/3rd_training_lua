@@ -122,8 +122,8 @@ local function smoke_test_validator()
 end
 
 local function refresh_filtered_combos()
-   filtered_combos = {}
-   combo_names = {}
+   for k in ipairs(filtered_combos) do filtered_combos[k] = nil end
+   for k in ipairs(combo_names)    do combo_names[k]    = nil end
    local filter = DIFFICULTY_KEY[settings.training.combo_challenges.current_difficulty_filter]
    for _, c in ipairs(oro_combos) do
       if filter == "all" or c.difficulty == filter then
@@ -140,6 +140,11 @@ local function init()
    settings.training.combo_challenges = settings.training.combo_challenges
       or { show_notation_overlay = true, show_step_strip = true,
            current_difficulty_filter = 1, current_combo_index = 1 }
+   local cc = settings.training.combo_challenges
+   if cc.show_notation_overlay == nil then cc.show_notation_overlay = true end
+   if cc.show_step_strip       == nil then cc.show_step_strip       = true end
+   cc.current_difficulty_filter = cc.current_difficulty_filter or 1
+   cc.current_combo_index       = cc.current_combo_index       or 1
    print(string.format("[combo_challenges] loaded %d Oro combos", #oro_combos))
    -- Smoke test runs once per script load. Remove this call in Task 9
    -- after the user has confirmed the "validator smoke test passed" line
