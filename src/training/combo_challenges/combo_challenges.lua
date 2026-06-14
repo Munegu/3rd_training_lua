@@ -288,7 +288,13 @@ local function update()
    })
 end
 
-local function process_gesture(gesture) end
+local function process_gesture(gesture)
+   if not is_mode_active then return end
+   if gesture == "single_tap" then
+      reload_reset_point()
+      print("[combo_challenges] coin reset")
+   end
+end
 
 local function arm_and_start(combo)
    local modes = require("src.modes")
