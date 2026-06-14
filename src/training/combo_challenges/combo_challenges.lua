@@ -190,6 +190,25 @@ local function resolve_oro_animation(move, button)
    return anim_hex
 end
 
+local function current_result_text()
+   if not active_validator then return nil end
+   local s = active_validator.state
+   if s == validator_module.STATE.SUCCESS then
+      return L("combo_result_success")
+   elseif s == validator_module.STATE.FAIL then
+      local key_by_reason = {
+         [validator_module.FAIL_REASON.WRONG_INPUT]   = "combo_result_fail_wrong_input",
+         [validator_module.FAIL_REASON.MISSED_WINDOW] = "combo_result_fail_missed_window",
+         [validator_module.FAIL_REASON.COMBO_DROPPED] = "combo_result_fail_combo_dropped",
+         [validator_module.FAIL_REASON.WRONG_STATE]   = "combo_result_fail_wrong_state",
+      }
+      local key = key_by_reason[active_validator.fail_reason]
+      if not key then return nil end
+      return L(key) .. tostring(active_validator.fail_step)
+   end
+   return nil
+end
+
 local function combo_challenges_display()
    if not active_validator then return end
    if not gamestate.is_in_match then return end
@@ -235,25 +254,6 @@ local function stop()
    active_validator = nil
    combo_reset_savestate = nil
    pending_save_reset_point = false
-end
-
-local function current_result_text()
-   if not active_validator then return nil end
-   local s = active_validator.state
-   if s == validator_module.STATE.SUCCESS then
-      return L("combo_result_success")
-   elseif s == validator_module.STATE.FAIL then
-      local key_by_reason = {
-         [validator_module.FAIL_REASON.WRONG_INPUT]   = "combo_result_fail_wrong_input",
-         [validator_module.FAIL_REASON.MISSED_WINDOW] = "combo_result_fail_missed_window",
-         [validator_module.FAIL_REASON.COMBO_DROPPED] = "combo_result_fail_combo_dropped",
-         [validator_module.FAIL_REASON.WRONG_STATE]   = "combo_result_fail_wrong_state",
-      }
-      local key = key_by_reason[active_validator.fail_reason]
-      if not key then return nil end
-      return L(key) .. tostring(active_validator.fail_step)
-   end
-   return nil
 end
 
 local function update()
