@@ -12,6 +12,9 @@ local character_select = require("src.control.character_select")
 -- Localization: image_tables.text stores pre-rendered image glyphs for
 -- known menu keys; our combo keys are not in that table. Pass resolved
 -- human-readable strings to draw.render_text so it renders char-by-char.
+-- _loc_strings caches the raw JSON; L() resolves the language live on each
+-- call from settings.language_tag, so mid-session language switches
+-- (en <-> jp) work correctly without cache invalidation.
 local _loc_strings = nil
 local function _load_loc()
    if _loc_strings then return end
@@ -59,7 +62,6 @@ local should_update_while_menu_is_open = false
 
 local active_combo = nil
 local active_validator = nil
-local last_logged_state = nil
 
 -- Savestate for resetting the round (Option B: poll has_curtain_just_began).
 local combo_reset_savestate = nil
@@ -84,7 +86,6 @@ end
 local function save_reset_point()
    combo_reset_savestate = savestate.create()
    savestate.save(combo_reset_savestate)
-   print("[combo_challenges] reset point saved")
 end
 
 local function reload_reset_point()
@@ -181,11 +182,6 @@ local function init()
    if cc.show_step_strip       == nil then cc.show_step_strip       = true end
    cc.current_difficulty_filter = cc.current_difficulty_filter or 1
    cc.current_combo_index       = cc.current_combo_index       or 1
-   print(string.format("[combo_challenges] loaded %d Oro combos", #oro_combos))
-   -- Smoke test runs once per script load. Remove this call in Task 9
-   -- after the user has confirmed the "validator smoke test passed" line
-   -- prints during a real emulator session.
-   smoke_test_validator()
 end
 
 local function resolve_oro_animation(move, button)
@@ -204,7 +200,6 @@ local function start()
       active_validator = validator_module.new(resolve_oro_animation)
       active_validator.arm(active_combo, gamestate.P2.combo)
    end
-   last_logged_state = active_validator.state
    -- Kick off character select: Oro (P1) vs Ken (P2).
    -- force_select_character queues coroutines that run in
    -- character_select.update_character_select each frame until selection
@@ -213,7 +208,6 @@ local function start()
    force_matchup_for_combo(active_combo)
    -- Flag update() to save the reset point once the round begins.
    pending_save_reset_point = true
-   print("[combo_challenges] start: " .. active_combo.id)
 end
 
 local function stop()
@@ -222,7 +216,6 @@ local function stop()
    active_validator = nil
    combo_reset_savestate = nil
    pending_save_reset_point = false
-   print("[combo_challenges] stopped")
 end
 
 local function current_result_text()
@@ -262,16 +255,6 @@ local function update()
    if not gamestate.is_in_match then return end
    local snap = build_snapshot(gamestate.P1, gamestate.P2)
    active_validator.tick(snap)
-   -- Dev console log: kept until Task 9 removes it.
-   if active_validator.state ~= last_logged_state then
-      print(string.format(
-         "[combo_challenges] state %s -> %s (step=%d reason=%s)",
-         tostring(last_logged_state),
-         tostring(active_validator.state),
-         active_validator.expected,
-         tostring(active_validator.fail_reason)))
-      last_logged_state = active_validator.state
-   end
    -- Draw overlay.  draw.render_text queues into the immediate gui buffer
    -- (same as jumpins and all other training modules that call it from
    -- before_frame via modules.update()).
@@ -292,8 +275,12 @@ local function process_gesture(gesture)
    if not is_mode_active then return end
    if gesture == "single_tap" then
       reload_reset_point()
-      print("[combo_challenges] coin reset")
    end
+end
+
+local function get_valid_control_schemes()
+   -- The player must control P1 (Oro). P2 is the dummy. Mirror jumpins.
+   return { { p1 = "player", p2 = "dummy_control" } }
 end
 
 local function arm_and_start(combo)
@@ -360,6 +347,7 @@ combo_challenges = {
    create_menu = create_menu,
    process_gesture = process_gesture,
    reload_reset_point = reload_reset_point,
+   get_valid_control_schemes = get_valid_control_schemes,
 }
 
 setmetatable(combo_challenges, {

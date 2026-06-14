@@ -42,6 +42,9 @@ function M.draw(view)
    if view.show_steps then
       for i, step in ipairs(view.combo.steps) do
          local x = BANNER_X + (i - 1) * STRIP_TILE_W
+         if x + STRIP_TILE_W > (draw.SCREEN_WIDTH or 383) - 4 then
+            break  -- avoid drawing tiles that would clip off the right edge
+         end
          local color = COLOR_DEFAULT
          if i < view.current_step then
             color = COLOR_DONE
