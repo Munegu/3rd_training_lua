@@ -5,6 +5,27 @@ local oro_combos = require("src.training.combo_challenges.combo_data.oro")
 local gamestate = require("src.gamestate")
 local framedata = require("src.data.framedata")
 local validator_module = require("src.training.combo_challenges.combo_validator")
+local display = require("src.training.combo_challenges.combo_display")
+local tools = require("src.tools")
+
+-- Localization: image_tables.text stores pre-rendered image glyphs for
+-- known menu keys; our combo keys are not in that table. Pass resolved
+-- human-readable strings to draw.render_text so it renders char-by-char.
+local _loc_strings = nil
+local function _load_loc()
+   if _loc_strings then return end
+   _loc_strings = tools.read_object_from_json_file(
+      "src/training/combo_challenges/localization.json") or {}
+end
+
+local function L(key)
+   if not key then return "" end
+   _load_loc()
+   local entry = _loc_strings[key]
+   if not entry then return key end
+   local lang = settings.language_tag or "en"
+   return entry[lang] or entry["en"] or key
+end
 
 local module_name = "combo_challenges"
 
@@ -121,11 +142,31 @@ local function stop()
    print("[combo_challenges] stopped")
 end
 
+local function current_result_text()
+   if not active_validator then return nil end
+   local s = active_validator.state
+   if s == validator_module.STATE.SUCCESS then
+      return L("combo_result_success")
+   elseif s == validator_module.STATE.FAIL then
+      local key_by_reason = {
+         [validator_module.FAIL_REASON.WRONG_INPUT]   = "combo_result_fail_wrong_input",
+         [validator_module.FAIL_REASON.MISSED_WINDOW] = "combo_result_fail_missed_window",
+         [validator_module.FAIL_REASON.COMBO_DROPPED] = "combo_result_fail_combo_dropped",
+         [validator_module.FAIL_REASON.WRONG_STATE]   = "combo_result_fail_wrong_state",
+      }
+      local key = key_by_reason[active_validator.fail_reason]
+      if not key then return nil end
+      return L(key) .. tostring(active_validator.fail_step)
+   end
+   return nil
+end
+
 local function update()
    if not is_mode_active or not active_validator then return end
    if not gamestate.is_in_match then return end
    local snap = build_snapshot(gamestate.P1, gamestate.P2)
    active_validator.tick(snap)
+   -- Dev console log: kept until Task 9 removes it.
    if active_validator.state ~= last_logged_state then
       print(string.format(
          "[combo_challenges] state %s -> %s (step=%d reason=%s)",
@@ -135,6 +176,20 @@ local function update()
          tostring(active_validator.fail_reason)))
       last_logged_state = active_validator.state
    end
+   -- Draw overlay.  draw.render_text queues into the immediate gui buffer
+   -- (same as jumpins and all other training modules that call it from
+   -- before_frame via modules.update()).
+   local cc_settings = settings.training and settings.training.combo_challenges
+   local show_notation = not (cc_settings and cc_settings.show_notation_overlay == false)
+   local show_steps    = not (cc_settings and cc_settings.show_step_strip == false)
+   display.draw({
+      combo = active_combo,
+      current_step = active_validator.expected,
+      show_notation = show_notation,
+      show_steps    = show_steps,
+      result_text   = current_result_text(),
+      coin_hint     = L("combo_hint_coin_retry"),
+   })
 end
 
 local function process_gesture(gesture) end
